@@ -14,6 +14,14 @@ public class PlayerInventory : MonoBehaviour
         public string itemName = "";
         public Color itemColor = Color.gray;
         public Sprite icon;
+        /// <summary>Reference to the original ItemDefinition, used to drive the held-item visual model.</summary>
+        public ItemDefinition definition;
+        /// <summary>Mesh snapshotted from the world pickup so the held visual matches exactly.</summary>
+        public Mesh itemMesh;
+        /// <summary>Materials snapshotted from the world pickup so the held visual matches exactly.</summary>
+        public Material[] itemMaterials;
+        /// <summary>World-space lossy scale of the pickup object, used to preserve relative size when held.</summary>
+        public Vector3 itemWorldScale;
 
         public bool IsEmpty => string.IsNullOrEmpty(itemName);
 
@@ -22,6 +30,10 @@ public class PlayerInventory : MonoBehaviour
             itemName = "";
             icon = null;
             itemColor = Color.gray;
+            definition = null;
+            itemMesh = null;
+            itemMaterials = null;
+            itemWorldScale = Vector3.one;
         }
     }
 
@@ -160,7 +172,8 @@ public class PlayerInventory : MonoBehaviour
         }
     }
 
-    public bool AddItem(string name, Color color, Sprite icon = null)
+    public bool AddItem(string name, Color color, Sprite icon = null, ItemDefinition definition = null,
+        Mesh mesh = null, Material[] materials = null, Vector3 worldScale = default)
     {
         if (string.IsNullOrEmpty(name))
             return false;
@@ -175,6 +188,10 @@ public class PlayerInventory : MonoBehaviour
             slots[i].itemName = name;
             slots[i].itemColor = color;
             slots[i].icon = icon;
+            slots[i].definition = definition;
+            slots[i].itemMesh = mesh;
+            slots[i].itemMaterials = materials;
+            slots[i].itemWorldScale = worldScale == default ? Vector3.one : worldScale;
             OnChanged?.Invoke();
             return true;
         }
@@ -215,7 +232,7 @@ public class PlayerInventory : MonoBehaviour
         Vector3 dropPosition = transform.position + transform.forward * dropDistance;
         dropPosition.y = transform.position.y + 0.45f;
 
-        ItemPickup.Spawn(dropPosition, Quaternion.identity, slot.itemName, slot.itemColor);
+        ItemPickup.Spawn(dropPosition, Quaternion.identity, slot.itemName, slot.itemColor, slot.definition, slot.itemMesh, slot.itemMaterials, slot.itemWorldScale);
         slot.Clear();
         Unequip();
         OnChanged?.Invoke();
