@@ -52,7 +52,17 @@ public class PlayerInventory : MonoBehaviour
 
     InventoryHUD hud;
     PickupPromptUI pickupPrompt;
+    CrosshairUI crosshair;
     HeldItemView heldItemView;
+
+    [Header("Throwing")]
+    [SerializeField] float minThrowForce = 2f;
+    [SerializeField] float maxThrowForce = 15f;
+    [SerializeField] float maxChargeTime = 5.0f;
+    
+    float currentChargeTime = 0f;
+    bool isChargingThrow = false;
+    Vector3 originalCamLocalPos;
 
     void Awake()
     {
@@ -60,6 +70,9 @@ public class PlayerInventory : MonoBehaviour
 
         if (viewCamera == null)
             viewCamera = GetComponentInChildren<Camera>();
+
+        if (viewCamera != null)
+            originalCamLocalPos = viewCamera.transform.localPosition;
 
         heldItemView = GetComponent<HeldItemView>();
         if (heldItemView == null)
@@ -76,13 +89,14 @@ public class PlayerInventory : MonoBehaviour
     {
         hud = FindFirstObjectByType<InventoryHUD>();
         pickupPrompt = FindFirstObjectByType<PickupPromptUI>();
+        crosshair = FindFirstObjectByType<CrosshairUI>();
 
         if (hud != null)
             return;
 
         var uiRoot = new GameObject("GameUI");
         hud = uiRoot.AddComponent<InventoryHUD>();
-        uiRoot.AddComponent<CrosshairUI>();
+        crosshair = uiRoot.AddComponent<CrosshairUI>();
         pickupPrompt = uiRoot.AddComponent<PickupPromptUI>();
     }
 
@@ -108,8 +122,45 @@ public class PlayerInventory : MonoBehaviour
 
     void HandleDropInput()
     {
-        if (GetDropPressed())
-            TryDropHeld();
+        if (!IsHolding)
+        {
+            if (isChargingThrow) ResetCharge();
+            return;
+        }
+
+        if (GetDropHeld())
+        {
+            isChargingThrow = true;
+            currentChargeTime += Time.deltaTime;
+            float normalized = Mathf.Clamp01(currentChargeTime / maxChargeTime);
+            if (crosshair != null) crosshair.SetCharge(normalized);
+
+            if (currentChargeTime > 10f && viewCamera != null)
+            {
+                // Intense shaking for overcharging
+                float shakeIntensity = 0.05f + (currentChargeTime - 10f) * 0.01f;
+                viewCamera.transform.localPosition = originalCamLocalPos + UnityEngine.Random.insideUnitSphere * shakeIntensity;
+            }
+        }
+        else if (GetDropReleased() && isChargingThrow)
+        {
+            float normalized = Mathf.Clamp01(currentChargeTime / maxChargeTime);
+            float force = Mathf.Lerp(minThrowForce, maxThrowForce, normalized);
+            TryThrowHeld(force);
+            ResetCharge();
+        }
+        else if (isChargingThrow && !GetDropHeld()) // failsafe
+        {
+            ResetCharge();
+        }
+    }
+
+    void ResetCharge()
+    {
+        isChargingThrow = false;
+        currentChargeTime = 0f;
+        if (crosshair != null) crosshair.SetCharge(0f);
+        if (viewCamera != null) viewCamera.transform.localPosition = originalCamLocalPos;
     }
 
     void HandlePickupInput()
@@ -128,7 +179,7 @@ public class PlayerInventory : MonoBehaviour
 
         if (IsHolding)
         {
-            pickupPrompt.SetPrompt("Q to drop", true);
+            pickupPrompt.SetPrompt("Hold Q to throw", true);
             return;
         }
 
@@ -217,7 +268,7 @@ public class PlayerInventory : MonoBehaviour
         OnChanged?.Invoke();
     }
 
-    public void TryDropHeld()
+    public void TryThrowHeld(float force)
     {
         if (!IsHolding)
             return;
@@ -232,7 +283,18 @@ public class PlayerInventory : MonoBehaviour
         Vector3 dropPosition = transform.position + transform.forward * dropDistance;
         dropPosition.y = transform.position.y + 0.45f;
 
-        ItemPickup.Spawn(dropPosition, Quaternion.identity, slot.itemName, slot.itemColor, slot.definition, slot.itemMesh, slot.itemMaterials, slot.itemWorldScale);
+        ItemPickup pickup = ItemPickup.Spawn(dropPosition, Quaternion.identity, slot.itemName, slot.itemColor, slot.definition, slot.itemMesh, slot.itemMaterials, slot.itemWorldScale);
+        
+        if (pickup.Body != null)
+        {
+            // Throw forward and slightly up based on camera look direction
+            Vector3 throwDir = (viewCamera != null ? viewCamera.transform.forward : transform.forward);
+            pickup.Body.AddForce(throwDir * force, ForceMode.Impulse);
+            
+            // Add some spin
+            pickup.Body.AddTorque(UnityEngine.Random.insideUnitSphere * force * 0.5f, ForceMode.Impulse);
+        }
+
         slot.Clear();
         Unequip();
         OnChanged?.Invoke();
@@ -266,12 +328,21 @@ public class PlayerInventory : MonoBehaviour
 #endif
     }
 
-    static bool GetDropPressed()
+    static bool GetDropHeld()
     {
 #if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
-        return Keyboard.current != null && Keyboard.current.qKey.wasPressedThisFrame;
+        return Keyboard.current != null && Keyboard.current.qKey.isPressed;
 #else
-        return Input.GetKeyDown(KeyCode.Q);
+        return Input.GetKey(KeyCode.Q);
+#endif
+    }
+
+    static bool GetDropReleased()
+    {
+#if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
+        return Keyboard.current != null && Keyboard.current.qKey.wasReleasedThisFrame;
+#else
+        return Input.GetKeyUp(KeyCode.Q);
 #endif
     }
 

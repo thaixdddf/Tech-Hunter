@@ -12,6 +12,7 @@ public class ItemPickup : MonoBehaviour
 
     public string ItemName => definition != null ? definition.itemName : itemName;
     public Color ItemColor => definition != null ? definition.displayColor : itemColor;
+    public Rigidbody Body => body;
 
     void Awake()
     {
